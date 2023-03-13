@@ -2021,12 +2021,10 @@ struct LayerNorm : public PatternBase {
   PATTERN_DECL_NODE(x_mean_out);
   PATTERN_DECL_NODE(x_sub_mean);
   PATTERN_DECL_NODE(x_sub_mean_out);
-  PATTERN_DECL_NODE(sqr_pow);
   PATTERN_DECL_NODE(x_sub_mean_sqr);
   PATTERN_DECL_NODE(x_sub_mean_sqr_out);
   PATTERN_DECL_NODE(std_dev);
   PATTERN_DECL_NODE(std_dev_out);
-  PATTERN_DECL_NODE(eps);
   PATTERN_DECL_NODE(std_dev_eps);
   PATTERN_DECL_NODE(std_dev_eps_out);
   PATTERN_DECL_NODE(std_dev_eps_sqrt);
@@ -2034,9 +2032,15 @@ struct LayerNorm : public PatternBase {
   PATTERN_DECL_NODE(division);
   PATTERN_DECL_NODE(division_out);
   PATTERN_DECL_NODE(gamma);
+  PATTERN_DECL_NODE(gamma_reshape);
+  PATTERN_DECL_NODE(gamma_reshape_out);
+  PATTERN_DECL_NODE(gamma_reshape_out_xshape);
   PATTERN_DECL_NODE(scale);
   PATTERN_DECL_NODE(scale_out);
   PATTERN_DECL_NODE(beta);
+  PATTERN_DECL_NODE(beta_reshape);
+  PATTERN_DECL_NODE(beta_reshape_out);
+  PATTERN_DECL_NODE(beta_reshape_out_xshape);
   PATTERN_DECL_NODE(shift);
   PATTERN_DECL_NODE(shift_out);
 };

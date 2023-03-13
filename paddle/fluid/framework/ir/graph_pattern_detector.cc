@@ -3605,31 +3605,23 @@ PDNode *patterns::LayerNorm::operator()() {
   auto *x_sub_mean_out =
       pattern->NewNode(x_sub_mean_out_repr())
           ->assert_is_op_output("elementwise_sub")
-          ->assert_is_ops_input({"elementwise_pow", "elementwise_div"}, "X")
+          ->assert_is_ops_input({"pow", "elementwise_div"}, "X")
           ->AsIntermediate();
-  auto *sqr_pow = pattern->NewNode(sqr_pow_repr())
-                      ->assert_is_op_input("elementwise_pow", "Y")
-                      ->assert_is_persistable_var()
-                      ->AsInput();
   auto *x_sub_mean_sqr =
-      pattern->NewNode(x_sub_mean_sqr_repr())->assert_is_op("elementwise_pow");
+      pattern->NewNode(x_sub_mean_sqr_repr())->assert_is_op("pow");
   auto *x_sub_mean_sqr_out = pattern->NewNode(x_sub_mean_sqr_out_repr())
-                                 ->assert_is_op_output("elementwise_pow")
+                                 ->assert_is_op_output("pow")
                                  ->assert_is_op_input("reduce_mean")
                                  ->AsIntermediate();
   auto *std_dev = pattern->NewNode(std_dev_repr())->assert_is_op("reduce_mean");
   auto *std_dev_out = pattern->NewNode(std_dev_out_repr())
                           ->assert_is_op_output("reduce_mean")
-                          ->assert_is_op_input("elementwise_add")
+                          ->assert_is_op_input("scale")
                           ->AsIntermediate();
-  auto *eps = pattern->NewNode(eps_repr())
-                  ->assert_is_op_input("elementwise_add", "Y")
-                  ->assert_is_persistable_var()
-                  ->AsInput();
   auto *std_dev_eps =
-      pattern->NewNode(std_dev_eps_repr())->assert_is_op("elementwise_add");
+      pattern->NewNode(std_dev_eps_repr())->assert_is_op("scale");
   auto *std_dev_eps_out = pattern->NewNode(std_dev_eps_out_repr())
-                              ->assert_is_op_output("elementwise_add")
+                              ->assert_is_op_output("scale")
                               ->assert_is_op_input("sqrt")
                               ->AsIntermediate();
   auto *std_dev_eps_sqrt =
@@ -3645,18 +3637,38 @@ PDNode *patterns::LayerNorm::operator()() {
                            ->assert_is_op_input("elementwise_mul")
                            ->AsIntermediate();
   auto *gamma = pattern->NewNode(gamma_repr())
-                    ->assert_is_op_input("elementwise_mul", "Y")
+                    ->assert_is_op_input("reshape2")
                     ->assert_is_persistable_var()
                     ->AsInput();
+  auto *gamma_reshape =
+      pattern->NewNode(gamma_reshape_repr())->assert_is_op("reshape2");
+  auto *gamma_reshape_out = pattern->NewNode(gamma_reshape_out_repr())
+                                ->assert_is_op_output("reshape2")
+                                ->assert_is_op_input("elementwise_mul", "X")
+                                ->AsIntermediate();
+  auto gamma_reshape_out_xshape =
+      pattern->NewNode(gamma_reshape_out_xshape_repr())
+          ->AsIntermediate()
+          ->assert_is_op_output("reshape2", "XShape");
   auto *scale = pattern->NewNode(scale_repr())->assert_is_op("elementwise_mul");
   auto *scale_out = pattern->NewNode(scale_out_repr())
                         ->assert_is_op_output("elementwise_mul")
                         ->assert_is_op_input("elementwise_add")
                         ->AsIntermediate();
   auto *beta = pattern->NewNode(beta_repr())
-                   ->assert_is_op_input("elementwise_add", "Y")
+                   ->assert_is_op_input("reshape2")
                    ->assert_is_persistable_var()
                    ->AsInput();
+  auto *beta_reshape =
+      pattern->NewNode(beta_reshape_repr())->assert_is_op("reshape2");
+  auto *beta_reshape_out = pattern->NewNode(beta_reshape_out_repr())
+                               ->assert_is_op_output("reshape2")
+                               ->assert_is_op_input("elementwise_add", "Y")
+                               ->AsIntermediate();
+  auto beta_reshape_out_xshape =
+      pattern->NewNode(beta_reshape_out_xshape_repr())
+          ->AsIntermediate()
+          ->assert_is_op_output("reshape2", "XShape");
   auto *shift = pattern->NewNode(shift_repr())->assert_is_op("elementwise_add");
   auto *shift_out = pattern->NewNode(shift_out_repr())
                         ->assert_is_op_output("elementwise_add")
@@ -3668,9 +3680,9 @@ PDNode *patterns::LayerNorm::operator()() {
    *          /   reduce_mean "u(x)"
    *          \   /
    *      elementwise_sub     "x - u(x)"
-   *      /           \    2
-   *      |            \  /
-   *      |      elementwise_pow  "(x - u(x))^2"
+   *      /           \
+   *      |            \
+   *      |            pow  "(x - u(x))^2"
    *      |             |
    *      |       reduce_mean     "sigma^2 = 1/C*Sum{(x - u(x))^2}"
    *      |             |     eps
@@ -3683,27 +3695,34 @@ PDNode *patterns::LayerNorm::operator()() {
    *       elementwise_div        "lnorm = {x-u(x)}/{sqrt(sigma^2 + epsilon)}"
    *              |
    *       gamma  |
+   *         |    |
+   *      reshape |
    *          \   |
-   *       elementwise_mul        "scale: gamma(C) * lnorm"
+   *       elementwise_mul        "scale: gamma * lnorm"
    *              |
    *        beta  |
+   *         |    |
+   *      reshape |
    *          \   |
-   *       elementwise_add        "shift: gamma(C) * lnorm + beta(C)"
+   *       elementwise_add        "shift: gamma * lnorm + beta"
    */
 
   x_mean->LinksFrom({x}).LinksTo({x_mean_out});
   x_sub_mean->LinksFrom({x, x_mean_out}).LinksTo({x_sub_mean_out});
-  x_sub_mean_sqr->LinksFrom({x_sub_mean_out, sqr_pow})
-      .LinksTo({x_sub_mean_sqr_out});
+  x_sub_mean_sqr->LinksFrom({x_sub_mean_out}).LinksTo({x_sub_mean_sqr_out});
   std_dev->LinksFrom({x_sub_mean_sqr_out}).LinksTo({std_dev_out});
-  std_dev_eps->LinksFrom({std_dev_out, eps}).LinksTo({std_dev_eps_out});
+  std_dev_eps->LinksFrom({std_dev_out}).LinksTo({std_dev_eps_out});
 
   std_dev_eps_sqrt->LinksFrom({std_dev_eps_out})
       .LinksTo({std_dev_eps_sqrt_out});
   division->LinksFrom({x_sub_mean_out, std_dev_eps_sqrt_out})
       .LinksTo({division_out});
-  scale->LinksFrom({division_out, gamma}).LinksTo({scale_out});
-  shift->LinksFrom({scale_out, beta}).LinksTo({shift_out});
+  gamma_reshape->LinksFrom({gamma}).LinksTo({gamma_reshape_out});
+  gamma_reshape->LinksTo({gamma_reshape_out_xshape});
+  scale->LinksFrom({gamma_reshape_out, division_out}).LinksTo({scale_out});
+  beta_reshape->LinksFrom({beta}).LinksTo({beta_reshape_out});
+  beta_reshape->LinksTo({beta_reshape_out_xshape});
+  shift->LinksFrom({scale_out, beta_reshape_out}).LinksTo({shift_out});
 
   return shift_out;
 }

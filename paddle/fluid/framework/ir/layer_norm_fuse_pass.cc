@@ -163,29 +163,30 @@ LayerNormFusePass::LayerNormFusePass() {
       .AddAttr("axis")
       .IsIntIn({-1, 0})
       .End();
-  AddOpCompat(OpCompat("elementwise_pow"))
+  AddOpCompat(OpCompat("pow"))
       .AddInput("X")
-      .IsTensor()
-      .End()
-      .AddInput("Y")
       .IsTensor()
       .End()
       .AddOutput("Out")
       .IsTensor()
       .End()
-      .AddAttr("axis")
+      .AddAttr("factor")
       .End();
-  AddOpCompat(OpCompat("elementwise_add"))
+  AddOpCompat(OpCompat("scale"))
       .AddInput("X")
-      .IsTensor()
-      .End()
-      .AddInput("Y")
       .IsTensor()
       .End()
       .AddOutput("Out")
       .IsTensor()
       .End()
-      .AddAttr("axis")
+      .AddAttr("scale")
+      .IsNumEQ(1.f)
+      .End()
+      .AddAttr("bias")
+      .IsNumGE(0.f)
+      .End()
+      .AddAttr("bias_after_scale")
+      .IsNumEQ(true)
       .End();
   AddOpCompat(OpCompat("elementwise_div"))
       .AddInput("X")
@@ -211,6 +212,32 @@ LayerNormFusePass::LayerNormFusePass() {
       .IsTensor()
       .End()
       .AddAttr("axis")
+      .End();
+  AddOpCompat(OpCompat("elementwise_add"))
+      .AddInput("X")
+      .IsTensor()
+      .End()
+      .AddInput("Y")
+      .IsTensor()
+      .End()
+      .AddOutput("Out")
+      .IsTensor()
+      .End()
+      .AddAttr("axis")
+      .End();
+  AddOpCompat(OpCompat("reshape2"))
+      .AddInput("X")
+      .IsTensor()
+      .End()
+      .AddOutput("Out")
+      .IsTensor()
+      .End()
+      .AddOutput("XShape")
+      .IsOptional()
+      .IsTensor()
+      .End()
+      .AddAttr("shape")
+      .IsType<std::vector<int>>()
       .End();
 }
 
@@ -243,14 +270,12 @@ void LayerNormFusePass::ApplyImpl(Graph* graph) const {
     GET_IR_NODE_FROM_SUBGRAPH(x_sub_mean, x_sub_mean, layer_norm_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(
         x_sub_mean_out, x_sub_mean_out, layer_norm_pattern);
-    GET_IR_NODE_FROM_SUBGRAPH(sqr_pow, sqr_pow, layer_norm_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(
         x_sub_mean_sqr, x_sub_mean_sqr, layer_norm_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(
         x_sub_mean_sqr_out, x_sub_mean_sqr_out, layer_norm_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(std_dev, std_dev, layer_norm_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(std_dev_out, std_dev_out, layer_norm_pattern);
-    GET_IR_NODE_FROM_SUBGRAPH(eps, eps, layer_norm_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(std_dev_eps, std_dev_eps, layer_norm_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(
         std_dev_eps_out, std_dev_eps_out, layer_norm_pattern);
@@ -261,34 +286,29 @@ void LayerNormFusePass::ApplyImpl(Graph* graph) const {
     GET_IR_NODE_FROM_SUBGRAPH(division, division, layer_norm_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(division_out, division_out, layer_norm_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(gamma, gamma, layer_norm_pattern);
+    GET_IR_NODE_FROM_SUBGRAPH(gamma_reshape, gamma_reshape, layer_norm_pattern);
+    GET_IR_NODE_FROM_SUBGRAPH(
+        gamma_reshape_out, gamma_reshape_out, layer_norm_pattern);
+    GET_IR_NODE_FROM_SUBGRAPH(
+        gamma_reshape_out_xshape, gamma_reshape_out_xshape, layer_norm_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(scale, scale, layer_norm_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(scale_out, scale_out, layer_norm_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(beta, beta, layer_norm_pattern);
+    GET_IR_NODE_FROM_SUBGRAPH(beta_reshape, beta_reshape, layer_norm_pattern);
+    GET_IR_NODE_FROM_SUBGRAPH(
+        beta_reshape_out, beta_reshape_out, layer_norm_pattern);
+    GET_IR_NODE_FROM_SUBGRAPH(
+        beta_reshape_out_xshape, beta_reshape_out_xshape, layer_norm_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(shift, shift, layer_norm_pattern);
     GET_IR_NODE_FROM_SUBGRAPH(shift_out, shift_out, layer_norm_pattern);
 
-    auto* eps_tensor =
-        scope->FindVar(eps->Name())->GetMutable<phi::DenseTensor>();
     const auto& x_shape = x->Var()->GetShape();
 
     // ------------------ subgraph node's validation ---------------------------
-    CHECK_TRUE(
-        eps_tensor->numel() == 1,
-        ::paddle::string::Sprintf(
-            "The LayerNorm divisor epsilon value must be one-element tensor, "
-            "but has %s elements.",
-            eps_tensor->numel()));
-    CHECK_TRUE(
-        framework::TransToProtoVarType(eps_tensor->dtype()) ==
-            proto::VarType::FP32,
-        ::paddle::string::Sprintf("The LayerNorm divisor epsilon value "
-                                  "must be of FP32 data type, but is %s.",
-                                  eps_tensor->dtype()));
-
-    CHECK_TRUE(validateReduceOpAttrs(x_mean, x_shape, "input mean"),
-               "Validation of input mean node failed.");
-    CHECK_TRUE(validateReduceOpAttrs(std_dev, x_shape, "std_dev mean"),
-               "Validation of standard deviation node failed.");
+    // CHECK_TRUE(validateReduceOpAttrs(x_mean, x_shape, "input mean"),
+    //            "Validation of input mean node failed.");
+    // CHECK_TRUE(validateReduceOpAttrs(std_dev, x_shape, "std_dev mean"),
+    //            "Validation of standard deviation node failed.");
 
     bool keep_dim = PADDLE_GET_CONST(bool, x_mean->Op()->GetAttr("keep_dim"));
     std::vector<int> mean_dim =
@@ -310,79 +330,21 @@ void LayerNormFusePass::ApplyImpl(Graph* graph) const {
     const auto& gamma_shape = gamma->Var()->GetShape();
     const auto& beta_shape = beta->Var()->GetShape();
 
-    CHECK_TRUE(
-        gamma_shape.size() == x_shape.size() - begin_norm_axis,
-        ::paddle::string::Sprintf("The LayerNorm gamma (scale) tensor "
-                                  "shape must be H(`begin_norm_axis` splits "
-                                  "the tensor(`X`) to a matrix [N,H]),"
-                                  "but is %s.",
-                                  gamma_shape.size()));
-    CHECK_TRUE(
-        beta_shape.size() == x_shape.size() - begin_norm_axis,
-        ::paddle::string::Sprintf("The LayerNorm beta (shift) tensor "
-                                  "shape must be H(`begin_norm_axis` splits "
-                                  "the tensor(`X`) to a matrix [N,H]),"
-                                  "but is %s.",
-                                  beta_shape.size()));
-    CHECK_TRUE(beta_shape == gamma_shape,
-               ::paddle::string::Sprintf("The LayerNorm beta and gamma tensors "
-                                         "shapes' must be equal."));
-    CHECK_TRUE(
-        std::vector<int64_t>(x_shape.begin() + begin_norm_axis,
-                             x_shape.end()) == gamma_shape,
-        ::paddle::string::Sprintf("The LayerNorm beta and gamma tensors "
-                                  "shape must be H(`begin_norm_axis` splits "
-                                  "the tensor(`X`) to a matrix [N,H])."));
-
-    // gamma/beta must be a 1-dimensional tensor of size on layer_norm
-    auto layer_norm_x_mat_dims =
-        phi::flatten_to_2d(phi::make_ddim(x_shape), begin_norm_axis);
-    auto* gamma_tensor =
-        scope->FindVar(gamma->Name())->GetMutable<phi::DenseTensor>();
-    VarDesc new_gamma_desc(patterns::PDNodeName("layer_norm_fuse", "Scale"));
-    new_gamma_desc.SetShape({layer_norm_x_mat_dims[1]});
-    new_gamma_desc.SetDataType(
-        framework::TransToProtoVarType(gamma_tensor->dtype()));
-    new_gamma_desc.SetLoDLevel(gamma->Var()->GetLoDLevel());
-    new_gamma_desc.SetPersistable(true);
-    auto* new_gamma_node = g->CreateVarNode(&new_gamma_desc);
-    auto* new_gamma_tensor =
-        scope->Var(new_gamma_node->Name())->GetMutable<phi::DenseTensor>();
-    new_gamma_tensor->Resize(phi::make_ddim({layer_norm_x_mat_dims[1]}));
-    memcpy(new_gamma_tensor->mutable_data<float>(platform::CPUPlace()),
-           gamma_tensor->mutable_data<float>(platform::CPUPlace()),
-           layer_norm_x_mat_dims[1] * sizeof(float));
-
-    auto* beta_tensor =
-        scope->FindVar(beta->Name())->GetMutable<phi::DenseTensor>();
-    VarDesc new_beta_desc(patterns::PDNodeName("layer_norm_fuse", "Bias"));
-    new_beta_desc.SetShape({layer_norm_x_mat_dims[1]});
-    new_beta_desc.SetDataType(
-        framework::TransToProtoVarType(beta_tensor->dtype()));
-    new_beta_desc.SetLoDLevel(beta->Var()->GetLoDLevel());
-    new_beta_desc.SetPersistable(true);
-    auto* new_beta_node = g->CreateVarNode(&new_beta_desc);
-    auto* new_beta_tensor =
-        scope->Var(new_beta_node->Name())->GetMutable<phi::DenseTensor>();
-
-    new_beta_tensor->Resize(phi::make_ddim({layer_norm_x_mat_dims[1]}));
-    memcpy(new_beta_tensor->mutable_data<float>(platform::CPUPlace()),
-           beta_tensor->mutable_data<float>(platform::CPUPlace()),
-           layer_norm_x_mat_dims[1] * sizeof(float));
+    float eps = PADDLE_GET_CONST(float, std_dev_eps->Op()->GetAttr("bias"));
 
     // ------------------ op creation and placement ---------------------------
 
     OpDesc ln_op_desc;
     ln_op_desc.SetType("layer_norm");
     ln_op_desc.SetInput("X", {x->Name()});
-    ln_op_desc.SetInput("Scale", {new_gamma_node->Name()});
-    ln_op_desc.SetInput("Bias", {new_beta_node->Name()});
+    ln_op_desc.SetInput("Scale", {gamma->Name()});
+    ln_op_desc.SetInput("Bias", {beta->Name()});
     ln_op_desc.SetOutput("Y", {shift_out->Name()});
+    ln_op_desc.SetAttr("begin_norm_axis", begin_norm_axis);
+    ln_op_desc.SetAttr("epsilon", eps);
+    ln_op_desc.SetAttr("is_test", true);
     setIntermediateOut(&ln_op_desc, "Mean", scope_name_);
     setIntermediateOut(&ln_op_desc, "Variance", scope_name_);
-    ln_op_desc.SetAttr("begin_norm_axis", begin_norm_axis);
-    ln_op_desc.SetAttr("epsilon", *(eps_tensor->data<float>()));
-    ln_op_desc.SetAttr("is_test", true);
 
     if (!IsCompat(ln_op_desc)) {
       LOG(WARNING) << "layer norm pass in out layer_norm op compat failed.";
@@ -395,20 +357,18 @@ void LayerNormFusePass::ApplyImpl(Graph* graph) const {
     addIntermediateOut(ln_op, "Variance", scope_name_, g);
 
     IR_NODE_LINK_TO(x, ln_op);
-    IR_NODE_LINK_TO(new_gamma_node, ln_op);
-    IR_NODE_LINK_TO(new_beta_node, ln_op);
+    IR_NODE_LINK_TO(gamma, ln_op);
+    IR_NODE_LINK_TO(beta, ln_op);
     IR_OP_VAR_LINK(ln_op, shift_out);
     GraphSafeRemoveNodes(g,
                          {x_mean,
                           x_mean_out,
                           x_sub_mean,
                           x_sub_mean_out,
-                          sqr_pow,
                           x_sub_mean_sqr,
                           x_sub_mean_sqr_out,
                           std_dev,
                           std_dev_out,
-                          eps,
                           std_dev_eps,
                           std_dev_eps_out,
                           std_dev_eps_sqrt,
@@ -418,8 +378,12 @@ void LayerNormFusePass::ApplyImpl(Graph* graph) const {
                           scale,
                           scale_out,
                           shift,
-                          gamma,
-                          beta});
+                          gamma_reshape,
+                          gamma_reshape_out,
+                          gamma_reshape_out_xshape,
+                          beta_reshape,
+                          beta_reshape_out,
+                          beta_reshape_out_xshape});
     found_layer_norm_count++;
   };
 
@@ -448,8 +412,8 @@ REGISTER_PASS_CAPABILITY(layer_norm_fuse_pass)
             .LE("elementwise_div", 1)
             .GE("elementwise_mul", 0)
             .LE("elementwise_mul", 1)
-            .GE("elementwise_pow", 0)
-            .LE("elementwise_pow", 1)
+            .GE("pow", 0)
+            .LE("pow", 1)
             .GE("elementwise_sub", 0)
             .LE("elementwise_sub", 1)
             .EQ("reduce_mean", 0)

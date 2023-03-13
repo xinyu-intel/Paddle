@@ -126,6 +126,7 @@ pass_library(gpu_cpu_map_matmul_to_mul_pass inference)
 pass_library(dense_fc_to_sparse_pass inference)
 pass_library(dense_multihead_matmul_to_sparse_pass inference)
 pass_library(generate_pass DEPS pass_desc_proto)
+pass_library(common_subexpression_elimination_pass inference)
 target_link_libraries(generate_pass pass_desc_proto)
 
 if(WITH_TENSORRT)
