@@ -16,7 +16,7 @@ limitations under the License. */
 #include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/framework/op_version_registry.h"
 #include "paddle/phi/kernels/funcs/blas/blas.h"
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
 #include "paddle/fluid/platform/mkldnn_helper.h"
 #endif
 
@@ -584,7 +584,7 @@ class MatMulOp : public framework::OperatorWithKernel {
     auto dim_x = GetDimForInput(*context, "X");
     auto dim_y = GetDimForInput(*context, "Y");
 
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
     // For NHWC execution output shape needs to be
     // computed like instead x*y we are to do y*x
     bool channelwise_onednn =
@@ -683,7 +683,7 @@ class MatMulOp : public framework::OperatorWithKernel {
 
     framework::DDim ddim_out = phi::make_ddim(dim_out);
 
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
     auto shape = context->Attrs().Get<std::vector<int>>("fused_reshape_Out");
     auto axis = context->Attrs().Get<std::vector<int>>("fused_transpose_Out");
 
@@ -710,7 +710,7 @@ class MatMulOp : public framework::OperatorWithKernel {
       // only promote inputs’s types when contains complex input
       return phi::KernelKey(tensor.place(), tensor.layout(), tensor.dtype());
     } else {
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
       // When matmul is first oneDNN op in a chain (there was some non oneDNN op
       // previously)
       // then we also need to rotate shape NHWC -> NCWH

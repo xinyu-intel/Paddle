@@ -22,7 +22,7 @@ limitations under the License. */
 #include "paddle/phi/core/infermeta_utils.h"
 #include "paddle/phi/infermeta/backward.h"
 #include "paddle/phi/infermeta/unary.h"
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
 #include "paddle/fluid/platform/mkldnn_helper.h"
 #endif
 
@@ -46,9 +46,9 @@ phi::KernelKey PoolOp::GetExpectedKernelType(
     const framework::ExecutionContext& ctx) const {
   auto data_type = OperatorWithKernel::IndicateVarDataType(ctx, "X");
 
-  // NOTE(jiahongyu): Below codes originally enclosed by PADDLE_WITH_MKLDNN
+  // NOTE(jiahongyu): Below codes originally enclosed by PADDLE_WITH_DNNL
   this->SetDnnFallback(!CanMKLDNNSupportPool(ctx));
-  // NOTE(jiahongyu) END: Above codes originally enclosed by PADDLE_WITH_MKLDNN
+  // NOTE(jiahongyu) END: Above codes originally enclosed by PADDLE_WITH_DNNL
 
   return phi::KernelKey(data_type, ctx.GetPlace());
 }
@@ -57,7 +57,7 @@ phi::KernelKey PoolOp::GetKernelTypeForVar(
     const std::string& var_name,
     const phi::DenseTensor& tensor,
     const phi::KernelKey& expected_kernel_type) const {
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
   if ((expected_kernel_type.layout() == phi::DataLayout::ONEDNN) &&
       (tensor.layout() != phi::DataLayout::ONEDNN)) {
     auto attrs = Attrs();
@@ -79,9 +79,9 @@ phi::KernelKey PoolOpGrad::GetExpectedKernelType(
     const framework::ExecutionContext& ctx) const {
   auto input_data_type = OperatorWithKernel::IndicateVarDataType(ctx, "X");
 
-  // NOTE(jiahongyu): Below codes originally enclosed by PADDLE_WITH_MKLDNN
+  // NOTE(jiahongyu): Below codes originally enclosed by PADDLE_WITH_DNNL
   this->SetDnnFallback(!CanMKLDNNSupportPool(ctx));
-  // NOTE(jiahongyu): Above codes originally enclosed by PADDLE_WITH_MKLDNN
+  // NOTE(jiahongyu): Above codes originally enclosed by PADDLE_WITH_DNNL
 
   return phi::KernelKey(input_data_type, ctx.GetPlace());
 }
@@ -90,7 +90,7 @@ phi::KernelKey PoolOpGrad::GetKernelTypeForVar(
     const std::string& var_name,
     const phi::DenseTensor& tensor,
     const phi::KernelKey& expected_kernel_type) const {
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
   if ((expected_kernel_type.layout() == phi::DataLayout::ONEDNN) &&
       (tensor.layout() != phi::DataLayout::ONEDNN)) {
     auto attrs = Attrs();

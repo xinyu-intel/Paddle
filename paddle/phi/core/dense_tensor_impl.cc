@@ -343,7 +343,7 @@ std::vector<DenseTensor> DenseTensor::Chunk(int64_t chunks,
   return Split(split_size, axis);
 }
 
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
 const dnnl::memory::desc& DenseTensor::mem_desc() const { return mem_desc_; }
 #endif
 
@@ -360,7 +360,7 @@ DenseTensor& DenseTensor::ShareDataWith(const DenseTensor& src) {
   meta_.use_gpudnn = src.meta_.use_gpudnn;
   storage_properties_ =
       std::move(CopyStorageProperties(src.storage_properties_));
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
   mem_desc_ = src.mem_desc_;
 #endif
   return *this;

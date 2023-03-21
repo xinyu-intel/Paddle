@@ -20,7 +20,7 @@ limitations under the License. */
 #include "paddle/phi/core/flags.h"
 #include "paddle/phi/kernels/funcs/math_function.h"
 
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
 #include "paddle/fluid/platform/mkldnn_helper.h"
 #endif
 
@@ -82,7 +82,7 @@ class ConditionalBlockOp : public ConditionalOp {
       scopes->front() = &scope.NewScope();
 
       auto &cur_scope = *scopes->front();
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
       // Executor on being destroyed clears oneDNN cache and resets
       // registered model data layout. This is unwanted for nested
       // Executors (executors declared inside control ops)
@@ -126,7 +126,7 @@ class ConditionalBlockOp : public ConditionalOp {
           exec_.reset(new Executor(dev_place));
           if (FLAGS_use_mkldnn) exec_->EnableMKLDNN(pdesc);
           ctx_ = exec_->Prepare(pdesc, block->ID(), skip_vars, false);
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
           platform::AttachPointerHashToMKLDNNKey(exec_.get(), dev_place);
           platform::RegisterModelLayout(ctx_->ops_, dev_place);
 #endif
@@ -238,7 +238,7 @@ class ConditionalBlockGradOp : public ConditionalOp {
           exec_.reset(new Executor(dev_place));
           if (FLAGS_use_mkldnn) exec_->EnableMKLDNN(pdesc);
           ctx_ = exec_->Prepare(pdesc, block->ID(), inside_grads, false);
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
           platform::AttachPointerHashToMKLDNNKey(exec_.get(), dev_place);
           platform::RegisterModelLayout(ctx_->ops_, dev_place);
 #endif

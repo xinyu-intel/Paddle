@@ -277,7 +277,7 @@ void InitDevices(const std::vector<int> devices) {
 #endif
   platform::DeviceContextPool::Init(places);
 
-#ifndef PADDLE_WITH_MKLDNN
+#ifndef PADDLE_WITH_DNNL
   platform::SetNumThreads(FLAGS_paddle_num_threads);
 #endif
 }

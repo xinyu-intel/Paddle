@@ -111,13 +111,13 @@ class LayerNormOp : public framework::OperatorWithKernel {
       const framework::ExecutionContext &ctx) const override {
     auto input_data_type = OperatorWithKernel::IndicateVarDataType(ctx, "X");
 
-    // NOTE(jiahongyu): Below codes originally enclosed by PADDLE_WITH_MKLDNN
+    // NOTE(jiahongyu): Below codes originally enclosed by PADDLE_WITH_DNNL
     int begin_norm_axis = ctx.Attr<int>("begin_norm_axis");
     if (begin_norm_axis !=
         ctx.Input<phi::DenseTensor>("X")->dims().size() - 1) {
       this->SetDnnFallback(true);
     }
-    // NOTE(jiahongyu): Above codes originally enclosed by PADDLE_WITH_MKLDNN
+    // NOTE(jiahongyu): Above codes originally enclosed by PADDLE_WITH_DNNL
 
     return phi::KernelKey(input_data_type, ctx.GetPlace());
   }

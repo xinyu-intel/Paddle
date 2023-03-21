@@ -165,7 +165,7 @@ TEST(dense_tensor, storage_properties) {
   CHECK_EQ(get_npu_properties.storage_dims.size(), 5);
 
   // test error type storage properties
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
   caught_exception = false;
   try {
     tensor.storage_properties<OneDNNStorageProperties>();

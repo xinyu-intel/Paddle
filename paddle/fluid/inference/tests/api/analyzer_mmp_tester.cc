@@ -35,7 +35,9 @@ void SetConfig(AnalysisConfig* config, const std::string& infer_model) {
 }
 
 std::unique_ptr<PaddlePredictor> InitializePredictor(
-    const std::string& infer_model, std::vector<float>& data, bool use_mkldnn) {
+    const std::string& infer_model,
+    const std::vector<float>& data,
+    bool use_mkldnn) {
   AnalysisConfig cfg;
   SetConfig(&cfg, infer_model);
   if (use_mkldnn) {
@@ -107,7 +109,7 @@ void compare(bool use_mkldnn = false) {
 }
 
 TEST(Analyzer_mmp, compare) { compare(); }
-#ifdef PADDLE_WITH_MKLDNN
+#ifdef PADDLE_WITH_DNNL
 TEST(Analyzer_mmp, compare_mkldnn) { compare(true /* use_mkldnn */); }
 #endif
 
